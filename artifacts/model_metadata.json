@@ -1,0 +1,42 @@
+{
+  "model_type": "StandardScaler + LogisticRegression",
+  "scikit_learn_version": "1.8.0",
+  "python_version": "3.13.5",
+  "target": "Probability that Driver A finishes ahead of Driver B",
+  "features": [
+    "grid_diff",
+    "driver_finish_diff",
+    "driver_qual_diff",
+    "driver_points_diff",
+    "driver_pos_gained_diff",
+    "driver_dnf_diff",
+    "driver_top5_diff",
+    "team_finish_diff",
+    "team_qual_diff",
+    "team_points_diff",
+    "team_dnf_diff",
+    "driver_type_finish_diff",
+    "team_type_finish_diff",
+    "experience_diff",
+    "grid_x_street",
+    "form_x_street",
+    "grid_x_turns",
+    "grid_x_drs"
+  ],
+  "metrics": {
+    "accuracy": 0.8694736842105263,
+    "roc_auc": 0.9618903047091413,
+    "log_loss": 0.21294282404857093,
+    "brier_score": 0.07529782002269257,
+    "train_races": 19,
+    "holdout_races": 5,
+    "train_examples": 7220,
+    "holdout_examples": 1900,
+    "first_holdout_race_id": 20
+  },
+  "notes": [
+    "Validation is time-based: the latest five races are held out.",
+    "Production artifact is refit on all supplied races after evaluation.",
+    "Current model uses the repository's 2024 Kaggle snapshot only."
+  ]
+}
