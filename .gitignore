@@ -226,3 +226,9 @@ __pycache__/
 .DS_Store
 
 data/processed/*
+# Derived datasets (regenerate with f1-train)
+data/processed/*
+!data/processed/.gitkeep
+
+# Local platform noise
+.DS_Store

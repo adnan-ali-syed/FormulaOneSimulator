@@ -1,364 +1,374 @@
-# 🏎️ Formula One Simulator
+# 🏎️ Grid Battle — Formula One Simulator
 
-> **Change the conditions. Predict the race. Explore the “what if?”**
+> **Two drivers. One circuit. Your starting grid.**
 
-Formula One is one of the most data-rich sports in the world, but most race predictions are still consumed as fixed answers: *Who will win? Who has the fastest car? Who is likely to start on pole?*
+Grid Battle is an interactive Formula One fan-engagement microproduct that predicts the probability that one driver finishes ahead of another under a user-selected circuit and starting-grid scenario.
 
-Our Datathon microproduct takes a different approach.
+The larger Formula One Simulator vision is a full race-scenario engine. Grid Battle is the first deployable slice: small enough to ship, rich enough to demonstrate the product idea, and structured so weather, tyres, telemetry, reliability, and full-grid simulation can be added later.
 
-**Formula One Simulator** is an interactive race-outcome simulator designed to improve fan engagement by allowing users to modify selected race conditions and explore how those changes could affect the predicted result.
+---
+
+## ✨ What the product does
+
+Pick:
+
+- **Driver A**
+- **Driver B**
+- **Circuit**
+- **Starting position for each driver**
+
+Grid Battle returns:
+
+- the probability that each driver finishes ahead
+- the model favourite
+- an explanation of the strongest model influences
+- a side-by-side driver/team comparison
+- observed 2024 head-to-head results in the supplied dataset
+- a grid-position sensitivity curve
+- an **Equal-grid mode** for controlled what-if comparisons
+
+Example question:
+
+> **If Lewis Hamilton and George Russell started P3 and P5 at Silverstone, who would the model favour? What changes if Hamilton starts P10 instead?**
+
+---
+
+## 🎯 Why this exists
+
+Formula One broadcasts expose fans to enormous amounts of data, but most prediction experiences are passive: a model or pundit tells the viewer who is likely to win.
+
+Grid Battle makes prediction interactive.
 
 Instead of only asking:
 
-> **Who will win the race?**
+> **Who is better?**
 
-we want users to ask:
+fans can explore:
 
-> **What happens if the race conditions change?**
+> **Under these conditions, who has the edge — and why?**
 
----
-
-## 🎯 Project Idea
-
-A Formula One race outcome depends on many interacting factors:
-
-- driver performance
-- constructor/team performance
-- qualifying position
-- circuit characteristics
-- recent form
-- reliability
-- fastest-lap pace
-- time of day
-- temperature and weather
-- telemetry-derived variables
-- race-specific conditions
-
-Our goal is to combine these signals into a predictive and simulation pipeline that generates a **predicted finishing grid** and **estimated lap-performance outputs**.
-
-The final product will allow users to tweak a selected set of variables and immediately see how the predicted race outcome changes.
+The long-term goal is to turn race prediction into a sandbox where users can manipulate relevant conditions and immediately see how the expected outcome changes.
 
 ---
 
-## 🧠 Product Vision
+## 🧠 Modeling approach
 
-A user could select a race scenario such as:
+The current V1 treats the matchup as a **pairwise classification problem**:
 
 ```text
-Circuit: Silverstone
-Weather: Light rain
-Track temperature: 18°C
-Starting position: P4
-Driver: Lando Norris
+Driver A finishes ahead → 1
+Driver B finishes ahead → 0
 ```
 
-The application would then generate an updated prediction such as:
+Every 20-driver race contains 190 unordered driver pairs. Representing each pair in both orientations creates thousands of head-to-head training examples from the supplied season while preserving the underlying race as the evaluation boundary.
+
+### Leakage-safe feature pipeline
+
+For every driver/race, the project calculates statistics using **only races that occurred before that race**.
+
+Current feature families include:
+
+- starting-grid difference
+- driver recent finishing form
+- driver qualifying form
+- average points
+- positions gained/lost tendency
+- DNF rate
+- top-5 consistency
+- constructor finishing and qualifying form
+- constructor points and reliability proxies
+- driver/constructor performance by circuit type
+- season experience
+- grid interactions with circuit context
+
+Team features are aggregated at the **team/race level before shifting**, preventing one teammate's current result from leaking into the other teammate's feature row.
+
+### Model
+
+The deployed V1 uses:
 
 ```text
-P1  Driver A
-P2  Driver B
-P3  Driver C
-...
-P20 Driver T
+StandardScaler → LogisticRegression
 ```
 
-along with lap-performance estimates and explanations of which factors influenced the prediction.
+This was chosen because it is lightweight, fast, probabilistic, symmetric for pairwise comparisons, and easy to explain.
 
-The product is intended to be an **interactive fan-engagement experience**, not just a static forecasting model.
+### Validation
+
+The model is not evaluated with a random row split. Instead, the **latest five races are held out chronologically**.
+
+Current time-holdout performance on the supplied dataset:
+
+| Metric | Result |
+|---|---:|
+| Accuracy | **86.9%** |
+| ROC AUC | **0.962** |
+| Brier score | **0.075** |
+| Holdout races | **5** |
+| Holdout matchup rows | **1,900** |
+
+After evaluation, the deployment artifact is refit on all available supplied races.
+
+See [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) for details and limitations.
 
 ---
 
-## 🔁 Planned Modeling Architecture
+## 🖥️ Product experience
 
-Rather than forcing the entire problem into one model, we plan to break the race outcome into related prediction tasks.
+The Streamlit app includes four analysis views:
 
-```text
-Historical race data
-        +
-Qualifying performance
-        +
-Driver performance
-        +
-Constructor performance
-        +
-Circuit characteristics
-        +
-Weather / race conditions
-        +
-Telemetry-derived features
-        ↓
-Feature engineering
-        ↓
-Predictive models
-        ↓
-Race simulation / ranking layer
-        ↓
-Predicted finishing grid
-+
-Lap-performance predictions
-```
+### 1. Why this result
+Shows the largest model contributions. Positive influence favours Driver A; negative influence favours Driver B.
 
-Potential modeling components include:
+### 2. Driver comparison
+Shows team, starting grid, average finish, qualifying form, points, positions gained, top-5 rate, DNF rate, and circuit-type form.
 
-1. **Race pace / lap-performance model**
-2. **Finishing-position or ranking model**
-3. **Reliability / DNF component**
-4. **Fastest-lap model**
-5. **Simulation layer** that combines model outputs into a complete race outcome
+### 3. Grid sensitivity
+Holds Driver B fixed and moves Driver A from P1–P20 to show how starting position changes the head-to-head probability.
 
-The exact architecture will evolve as we better understand the available data and validate baseline approaches.
+### 4. Model & limitations
+Displays validation metrics and makes clear which factors are — and are not — currently learned from data.
 
 ---
 
-## 📊 Current Data
+## 📊 Data
 
-The initial dataset is the **Comprehensive Formula 1 Dataset (2020–2025)** from Kaggle:
+The repository contains the supplied Kaggle Formula One snapshot under `data/raw/`.
 
-**Source:** `vshreekamalesh/comprehensive-formula-1-dataset-2020-2025`
-
-The current repository contains the following raw data files:
-
-| File | Shape | Purpose |
-|---|---:|---|
-| `f1_2024_race_results.csv` | 480 × 16 | 2024 race outcomes |
-| `f1_qualifying_results_2024.csv` | 480 × 14 | 2024 qualifying results |
-| `f1_2024_driver_standings.csv` | 480 × 13 | Driver standings by round |
-| `f1_2024_constructor_standings.csv` | 240 × 13 | Constructor standings by round |
-| `f1_circuits_metadata.csv` | 24 × 14 | Circuit characteristics |
-| `f1_historical_drivers.csv` | 30 × 16 | Historical driver metadata |
-
-The data is stored under:
+Current files:
 
 ```text
 data/raw/
+├── f1_2024_race_results.csv
+├── f1_qualifying_results_2024.csv
+├── f1_2024_driver_standings.csv
+├── f1_2024_constructor_standings.csv
+├── f1_circuits_metadata.csv
+├── f1_historical_drivers.csv
+└── dataset-metadata.json
 ```
 
-Processed modeling tables will later be written to:
-
-```text
-data/processed/
-```
-
----
-
-## 🔍 Initial EDA
-
-Initial exploratory analysis is available in:
+The initial exploratory analysis is available in:
 
 ```text
 notebooks/01_initial_eda.ipynb
 ```
 
-The first pass focuses on:
+### Important data note
 
-- dataset dimensions and schema
-- missing values
-- duplicate rows
-- race and driver coverage
-- qualifying versus finishing position
-- positions gained or lost during races
-- driver-level performance summaries
-- constructor-level performance
-- circuit metadata
-- identifying variables that can become future model features
-
-### Early observation
-
-In the current 2024 data, qualifying position and finishing position have a correlation of approximately **0.89**.
-
-This makes qualifying performance an obvious baseline predictor, while the remaining variance gives us room to explore additional signals such as team strength, circuit characteristics, reliability, weather, and telemetry.
-
-The qualifying dataset contains missing Q2 and Q3 times because drivers eliminated in earlier sessions do not participate in later sessions. These values should therefore be treated as **structural missingness**, not automatically as data-quality errors.
+Grid Battle is currently a Datathon prototype trained on the repository's Kaggle snapshot. The data should be validated/replaced with authoritative historical timing data before making real-world performance claims. The app therefore presents its output as an exploratory fan simulation rather than an official F1 forecast or betting product.
 
 ---
 
-## 🧪 Candidate Features
+## 🏗️ Architecture
 
-### Driver features
+```mermaid
+flowchart LR
+    A[Raw race + qualifying + circuit data] --> B[Leakage-safe pre-race feature engineering]
+    B --> C[Pairwise driver matchup dataset]
+    C --> D[Time-based validation]
+    D --> E[Logistic regression model]
+    E --> F[Persisted model artifact]
+    F --> G[Streamlit Grid Battle app]
+    H[User: drivers + circuit + grid] --> G
+    G --> I[Probability + explanation + sensitivity]
+```
 
-- qualifying position
-- qualifying time / gap to pole
-- recent finishing position
-- championship points
-- average positions gained/lost
-- podium frequency
-- fastest-lap frequency
-- recent form
-- circuit-specific historical performance
-
-### Constructor features
-
-- constructor championship position
-- recent points
-- wins / podiums
-- reliability / DNFs
-- pole positions
-- fastest laps
-- engine / constructor metadata
-
-### Circuit features
-
-- circuit length
-- number of turns
-- DRS zones
-- elevation change
-- race distance
-- circuit type
-- lap record
-
-### Planned external features
-
-As the project progresses, we plan to evaluate additional sources for:
-
-- weather
-- track and air temperature
-- rainfall
-- wind
-- tyre information
-- pit-stop strategy
-- sector times
-- telemetry
-- speed traces
-- lap-by-lap race progression
+The deployed application does **not** train a model for each user. The model is pre-trained and loaded once per application process using Streamlit caching, keeping interactive inference lightweight.
 
 ---
 
-## ⚠️ Important Modeling Principle
-
-We must avoid **data leakage**.
-
-Some variables in the current datasets describe information known only *after* or *during* the race, such as final championship totals or race outcomes. These cannot be used directly to predict that same race unless they are transformed into values that were genuinely available **before the prediction point**.
-
-A major part of our next phase will therefore be constructing **pre-race features** using only historical information available up to each race.
-
----
-
-## 📁 Repository Structure
+## 📁 Repository structure
 
 ```text
 FormulaOneSimulator/
-├── README.md
-├── LICENSE
-├── pyproject.toml
-├── uv.lock
-├── .python-version
-├── .gitignore
-│
+├── app/
+│   └── app.py
+├── artifacts/
+│   ├── model_metadata.json
+│   └── pairwise_model.joblib
 ├── data/
 │   ├── raw/
 │   └── processed/
-│
+├── docs/
+│   ├── DEPLOYMENT.md
+│   ├── MODEL_CARD.md
+│   └── project_scope.md
 ├── notebooks/
 │   └── 01_initial_eda.ipynb
-│
 ├── src/
-│   └── f1_predictor/
-│       ├── __init__.py
-│       ├── preprocessing.py
-│       ├── features.py
-│       └── model.py
-│
-├── app/
-│   └── app.py
-│
-└── docs/
-    └── project_scope.md
+│   ├── f1_predictor/
+│   │   ├── __init__.py
+│   │   ├── features.py
+│   │   ├── model.py
+│   │   ├── preprocessing.py
+│   │   └── train.py
+│   └── formulaonesimulator/
+│       └── __init__.py
+├── tests/
+│   └── test_pipeline.py
+├── .streamlit/
+│   └── config.toml
+├── Dockerfile
+├── Makefile
+├── requirements.txt
+├── pyproject.toml
+└── README.md
 ```
 
 ---
 
-## 🛠️ Tech Stack
-
-- **Python**
-- **uv** for dependency and environment management
-- **pandas** / **NumPy** for data processing
-- **Matplotlib** / **Plotly** for exploration and visualization
-- **scikit-learn** for baseline predictive modeling
-- **Streamlit** for the planned interactive microproduct
-
----
-
-## 🚀 Getting Started
+## 🚀 Run locally with `uv`
 
 ### 1. Clone the repository
 
 ```bash
-git clone <repository-url>
+git clone <YOUR-REPOSITORY-URL>
 cd FormulaOneSimulator
 ```
 
-### 2. Recreate the environment
+### 2. Create/sync the environment
 
 ```bash
 uv sync
 ```
 
-### 3. Launch Jupyter
+`uv` will create a fresh `uv.lock` for your environment the first time if one is not already present. Commit that lock file once generated so your team shares the same resolved environment.
+
+### 3. Launch the app
+
+The repository already includes a trained model artifact, so normally you can immediately run:
 
 ```bash
-uv run jupyter lab
+uv run streamlit run app/app.py
 ```
 
-### 4. Open the initial EDA
+Open:
 
 ```text
-notebooks/01_initial_eda.ipynb
+http://localhost:8501
+```
+
+### 4. Retrain after changing data/features
+
+```bash
+uv run python -m f1_predictor.train
+```
+
+or:
+
+```bash
+make train
+```
+
+### 5. Run tests
+
+```bash
+uv run pytest
 ```
 
 ---
 
-## 🚧 Current Progress
+## 🐳 Docker deployment
 
-- [x] Define the fan-engagement problem
-- [x] Create shared GitHub repository
-- [x] Set up a reproducible `uv` environment
-- [x] Identify and add the initial Formula One dataset
-- [x] Organize raw and processed data directories
-- [x] Begin exploratory data analysis
-- [x] Investigate qualifying vs. race-result relationships
-- [ ] Design leakage-safe pre-race feature pipeline
-- [ ] Build baseline race-position model
-- [ ] Add circuit and constructor features
-- [ ] Integrate weather data
-- [ ] Investigate telemetry data sources
-- [ ] Build fastest-lap / pace model
-- [ ] Create race simulation layer
-- [ ] Build interactive Streamlit interface
-- [ ] Evaluate prediction quality
-- [ ] Prepare final Datathon demo
+Build:
+
+```bash
+docker build -t grid-battle .
+```
+
+Run:
+
+```bash
+docker run --rm -p 8501:8501 grid-battle
+```
+
+Open `http://localhost:8501`.
+
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for deployment and scaling notes.
+
+---
+
+## ⚡ Why this can handle a small–medium demo workload
+
+V1 is intentionally operationally simple:
+
+- no external API calls during user interaction
+- no database requirement
+- no model training per request
+- small in-memory source tables
+- one lightweight logistic-regression inference per scenario
+- cached model and feature context
+- stateless user sessions apart from Streamlit UI state
+- container-ready health check
+
+For materially larger production traffic, the natural evolution is to expose inference through a stateless FastAPI service and scale multiple app/API replicas behind a load balancer.
+
+---
+
+## 🧪 Current limitations
+
+The model intentionally does **not** pretend to use data that is not present yet.
+
+V1 does not currently learn from:
+
+- live weather
+- track temperature
+- tyre compounds
+- pit-stop strategy
+- safety-car probability
+- lap-by-lap telemetry
+- fuel/load effects
+- engine-mode or component-health telemetry
+
+These are roadmap features rather than hard-coded or fabricated inputs.
 
 ---
 
 ## 🗺️ Roadmap
 
-### Phase 1 — Data understanding
-Explore the supplied datasets, validate data quality, identify useful fields, and document limitations.
+### V1 — Grid Battle ✅
+- driver vs driver
+- circuit selection
+- starting-grid what-if controls
+- probability of finishing ahead
+- explainable feature contributions
+- sensitivity analysis
 
-### Phase 2 — Feature engineering
-Create leakage-safe driver, constructor, circuit, form, and qualifying features.
+### V1.5 — Data enrichment
+- authoritative timing results
+- lap and sector features
+- weather
+- tyre data
+- pit stops
+- telemetry-derived pace features
 
-### Phase 3 — Baseline modeling
-Build simple interpretable baselines before moving to more complex models.
+### V2 — Rich scenario battle
+- wet/dry scenario controls backed by historical data
+- tyre strategy
+- reliability sub-model
+- car-performance scenarios
+- driver/team separation
 
-### Phase 4 — Data enrichment
-Incorporate weather, telemetry, tyre, pit-stop, and lap-level information where feasible.
-
-### Phase 5 — Simulation
-Combine predictive outputs to generate a full race ranking under a selected set of conditions.
-
-### Phase 6 — Interactive product
-Allow fans to change race conditions and immediately explore alternative predicted outcomes.
+### V3 — Full race simulator
+- 20-driver predicted grid
+- fastest-lap distribution
+- Monte Carlo race simulation
+- DNFs / safety cars / pit strategy
+- interactive race replay and scenario comparison
 
 ---
 
-## 🌟 Why This Matters
+## 🌟 Product vision
 
-Formula One fans already consume huge amounts of race data.
+Grid Battle is the smallest compelling part of a bigger idea:
 
-Our goal is to let them **interact with it**.
+> **Let Formula One fans change the scenario instead of passively consuming a prediction.**
 
-Instead of treating a race prediction as a single fixed answer, Formula One Simulator turns prediction into a sandbox:
+The question is no longer only:
 
-> **Change the scenario. Re-run the race. Understand what changed.**
+> *Who will win?*
 
-That is the experience we want to build.
+It becomes:
+
+> **What happens if I change the race?**
